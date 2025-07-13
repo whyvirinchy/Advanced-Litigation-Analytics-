@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Litigation Analytics Dashboard</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;600&display=swap');
+
+        :root {
+            --bg-color: #0d1117;
+            --primary-text-color: #c9d1d9;
+            --heading-color: #ffffff;
+            --secondary-text-color: #8b949e;
+
+            /* New: Professional Green Monochrome Palette */
+            --win-color: #B4CDC2;              /* Light Mint for 'Win' */
+            --settle-color: #89A894;           /* Mid-tone Sage for 'Settle' */
+            --lose-color: #6B8E7D;             /* Dark Sage for 'Lose' */
+            --firm-color: #B4CDC2;             /* Light Mint for Firm data */
+            --industry-color: #89A894;         /* Mid-tone Sage for Industry data */
+            --neutral-gray: #89A894;           /* Replaced with Sage for consistency */
+
+            /* Colors for Risk Map & Dashboard (Light to Dark Green) */
+            --case-green: #D9E9E2;             /* Very Light Mint - Most Suggested */
+            --case-yellow: #B4CDC2;            /* Light Mint - Can be taken */
+            --case-orange: #89A894;            /* Mid-tone Sage - Not Recommended */
+            --case-red: #6B8E7D;               /* Dark Sage - Never Taken */
+
+            --positive-trend-color: #B4CDC2;   /* Light Mint for positive trends */
+            --negative-trend-color: #6B8E7D;   /* Dark Sage for negative trends */
+
+            --card-bg: #161b22;
+            --border-color: #30363d;
+        }
+
+        body {
+            font-family: 'Lexend', sans-serif;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--primary-text-color);
+            overflow: hidden; /* Prevent body scroll */
+        }
+
+        .main-container {
+            max-width: 1400px;
+            margin: 1.5rem auto;
+            padding: 0 1.5rem;
+            height: calc(100vh - 3rem);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+            flex-shrink: 0;
+        }
+
+        .header h1 {
+            color: var(--heading-color);
+            font-family: 'Source Serif 4', serif;
+            font-weight: 600;
+            font-size: 2rem;
+        }
+        
+        .story-scroller {
+            display: flex;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch; /* Smooth scrolling on mobile */
+            scrollbar-width: none; /* Hide scrollbar for Firefox */
+            flex-grow: 1;
+        }
+        .story-scroller::-webkit-scrollbar {
+            display: none; /* Hide scrollbar for Chrome, Safari, Opera */
+        }
+
+        .story-slide {
+            flex: 0 0 100%;
+            scroll-snap-align: start;
+            display: grid;
+            grid-template-columns: 1fr 2.5fr;
+            gap: 2rem;
+            align-items: center;
+            opacity: 1;
+            padding-right: 2rem; /* Add padding to prevent content from touching edge */
+            box-sizing: border-box;
+        }
+
+        .explanation-panel {
+            padding-right: 1.5rem;
+        }
+
+        .explanation-panel h2 {
+            font-family: 'Source Serif 4', serif;
+            color: var(--heading-color);
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-top: 0;
+            line-height: 1.2;
+        }
+
+        .explanation-panel p {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            color: var(--secondary-text-color);
+        }
+
+        .chart-container {
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            height: 500px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .navigation-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            flex-shrink: 0;
+        }
+
+        .nav-dots {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .nav-dot {
+            width: 12px;
+            height: 12px;
+            background-color: var(--border-color);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .nav-dot:hover {
+            background-color: var(--secondary-text-color);
+        }
+
+        .nav-dot.active {
+            background-color: var(--firm-color);
+            transform: scale(1.2);
+        }
+
+        #tooltip {
+            position: absolute;
+            background-color: rgba(22, 27, 34, 0.9);
+            backdrop-filter: blur(5px);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            pointer-events: none;
+            transition: opacity 0.2s, transform 0.2s;
+            text-align: left;
+            white-space: pre-wrap;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            border: 1px solid var(--border-color);
+            z-index: 10;
+        }
+
+        /* Chart Specific Styles */
+        .table-container { width: 100%; height: 100%; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th, td { border-bottom: 1px solid var(--border-color); padding: 12px 12px; text-align: left; vertical-align: middle; }
+        th { background-color: #1c222b; font-weight: 500; position: sticky; top: 0; cursor: pointer; user-select: none;}
+        th:hover { background-color: #2a313c; }
+        tr { transition: background-color 0.2s ease; }
+        tr:hover { background-color: #21262d; }
+        .sparkline-bar { fill: var(--firm-color); transition: all 0.2s ease; }
+        tr:hover .sparkline-bar { fill: var(--industry-color); }
+        
+        /* Updated status colors to use the new green palette */
+        tr.status-not-started { background-color: rgba(107, 142, 125, 0.25) !important; }
+        tr.status-closed { background-color: rgba(180, 205, 194, 0.2) !important; }
+        tr.status-not-started:hover { background-color: rgba(107, 142, 125, 0.4) !important; }
+        tr.status-closed:hover { background-color: rgba(180, 205, 194, 0.35) !important; }
+
+
+        .dashboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap: 20px; width: 100%; height: 100%; padding: 10px;}
+        .kpi-tile, .chart-tile { background-color: #0d1117; border-radius: 6px; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--border-color); transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+        .kpi-tile:hover, .chart-tile:hover { transform: translateY(-5px); border-color: var(--firm-color); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .kpi-title { font-size: 1rem; color: var(--secondary-text-color); margin: 0; font-weight: 400; }
+        .kpi-value { font-size: 2.5rem; font-weight: 600; color: var(--heading-color); margin: 10px 0; line-height: 1; }
+        .kpi-separator { width: 100%; height: 1px; background-color: var(--border-color); margin: 10px 0; }
+        .kpi-trend { font-size: 1rem; font-weight: 500; }
+        .kpi-trend.positive { color: var(--positive-trend-color); }
+        .kpi-trend.negative { color: var(--negative-trend-color); }
+        .chart-tile { padding: 5px; }
+        .chart-tile .kpi-title { padding: 10px 10px 0 15px; }
+        .mini-chart-axis path, .mini-chart-axis line { stroke: var(--secondary-text-color); }
+        .mini-chart-axis text { fill: var(--secondary-text-color); font-size: 10px; }
+        .mini-chart-legend { font-size: 12px; fill: var(--primary-text-color); }
+
+        .d3-axis path, .d3-axis line { stroke: var(--border-color); }
+        .d3-axis text { fill: var(--primary-text-color); font-size: 0.8rem; }
+        .axis-label { fill: var(--primary-text-color); font-size: 0.9rem; text-anchor: middle; }
+        .grid-line { stroke: var(--border-color); stroke-opacity: 0.5; stroke-dasharray: 4,4; }
+
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+        <header class="header">
+            <h1>Litigation Analytics & Strategy Dashboard</h1>
+        </header>
+
+        <div class="story-scroller" id="story-scroller">
+            </div>
+        
+        <div class="navigation-controls">
+            <div class="nav-dots" id="nav-dots"></div>
+        </div>
+    </div>
+
+    <div id="tooltip" style="opacity: 0;"></div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const random = (min, max) => Math.random() * (max - min) + min;
+        const randomInt = (min, max) => Math.floor(random(min, max + 1));
+        const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+        const caseTypes = ["Contract Dispute", "Intellectual Property", "Employment Law", "Product Liability", "Antitrust", "Securities", "Real Estate", "Bankruptcy", "Environmental", "Class Action"];
+        const jurisdictions = ["Delaware", "California", "New York", "Texas", "D.C.", "Florida", "Illinois", "Massachusetts", "Washington"];
+        const judgeIds = Array.from({ length: 50 }, (_, i) => `Judge_${String.fromCharCode(65 + (i % 26))}${Math.floor(i / 26) || ''}`);
+
+        const casesData = Array.from({ length: 250 }, (_, i) => {
+            const caseId = `Case_${1001 + i}`;
+            const winProb = random(0.2, 0.9);
+            const loseProb = random(0.05, 0.5);
+            const settleProb = Math.max(0, 1 - winProb - loseProb);
+            const filingDate = new Date(randomInt(2020, 2023), randomInt(0, 11), randomInt(1, 28));
+            return {
+                CaseID: caseId, Case_Type: pickRandom(caseTypes), Jurisdiction: pickRandom(jurisdictions), Filing_Date: filingDate.toISOString().split('T')[0], Discovery_Start: new Date(filingDate.getTime() + 20 * 24 * 3600 * 1000).toISOString().split('T')[0], Discovery_End: new Date(filingDate.getTime() + 200 * 24 * 3600 * 1000).toISOString().split('T')[0], Trial_Date: new Date(filingDate.getTime() + 400 * 24 * 3600 * 1000).toISOString().split('T')[0], JudgeID: pickRandom(judgeIds), Win_Probability: winProb.toFixed(3), Settle_Probability: settleProb.toFixed(3), Lose_Probability: loseProb.toFixed(3), Dismiss_Probability: (Math.max(0, loseProb - 0.1)).toFixed(3), Potential_Award: randomInt(100000, 150000000), Firm_Win_Rate: (winProb + random(-0.05, 0.05)).toFixed(3), Industry_Win_Rate: (winProb + random(-0.1, 0.1)).toFixed(3), Firm_Settle_Rate: (settleProb + random(-0.05, 0.05)).toFixed(3), Industry_Settle_Rate: (settleProb + random(-0.1, 0.1)).toFixed(3),
+            };
+        });
+
+        const primaryCaseId = 'Case_1001';
+        const primaryCase = casesData.find(c => c.CaseID === primaryCaseId);
+        
+        const similarCasesData = [];
+        for (let i = 0; i < randomInt(20, 25); i++) {
+            similarCasesData.push({ Current_Case_ID: primaryCase.CaseID, Similar_Case_ID: `SC_${randomInt(1000, 9999)}`, Similarity_Score: random(0.65, 0.99).toFixed(2), Outcome: pickRandom(['Win', 'Settle', 'Lose', 'Dismissed']), Award_Amount: randomInt(primaryCase.Potential_Award * 0.4, primaryCase.Potential_Award * 1.6), Key_Differences: pickRandom(["Governing law", "Breach notification", "Force majeure", "Expert testimony", "Jurisdiction", "Evidence chain"]) });
+        }
+
+        const expertSpecialties = ["Forensic Accounting", "Contract Law", "Market Analysis", "IP Valuation", "Digital Forensics", "Structural Engineering", "Medical Malpractice", "Antitrust Economics", "Securities Fraud"];
+        const expertsData = Array.from({ length: 150 }, (_, i) => ({ Expert_ID: `Exp_${101 + i}`, Expert_Name: `Expert_${String.fromCharCode(65 + (i % 26))}${Math.floor(i / 26) || ''}`, Specialty: pickRandom(expertSpecialties), Cases_Involved: randomInt(3, 120), Success_Impact_Score: random(0.5, 0.99).toFixed(2), Avg_Testimony_Rating: random(3.0, 5.0).toFixed(1) }));
+
+        const outcomeProbabilityData = [
+          { scenario: "AI Baseline", win: 0.65, settle: 0.25, lose: 0.10 },
+          { scenario: "Aggressive Motion", win: 0.70, settle: 0.15, lose: 0.15 },
+          { scenario: "Hire Top Expert", win: 0.72, settle: 0.20, lose: 0.08 },
+          { scenario: "Early Settlement", win: 0.40, settle: 0.55, lose: 0.05 },
+        ];
+
+        const caseStatusOptions = ['Not Started', 'Pleadings Filed', 'Motion to Dismiss', 'Discovery', 'Depositions', 'Expert Disclosure', 'Pre-Trial Conference', 'Trial', 'Closed'];
+        const caseStatusData = casesData.slice(0, 100).map(d => ({...d, Status: pickRandom(caseStatusOptions)}));
+
+        const storySteps = [
+            { id: "exec-dashboard", title: "Executive Case Overview", text: "A high-level summary of the firm's entire case portfolio, tracking key performance indicators and historical trends.", drawChart: (container) => drawDashboardSummary(container) },
+            { id: "case-status", title: "Case Status Directory", text: "An interactive directory of active and closed cases. Click any column header to sort the table and track the procedural stage of each case.", drawChart: (container) => drawCaseStatusTable(container, caseStatusData) },
+            { id: "risk-map", title: "Firm Case Portfolio: Risk Map", text: "Visualizing the entire case portfolio to identify recommended cases based on risk vs. reward. Green cases are ideal, while red cases pose the highest risk.", drawChart: (container) => drawRiskMap(container, casesData) },
+            { id: "outcome-prob", title: "Case Outcome Probability", text: `AI-driven forecast of potential outcomes for a primary case (${primaryCaseId}), quantifying risk and reward across different strategic scenarios.`, drawChart: (container) => drawOutcomeProbabilityChart(container, outcomeProbabilityData) },
+            { id: "similar-cases", title: "Precedent Analysis", text: `Comparison of similar historical cases to ${primaryCaseId}, highlighting outcomes and key legal differentiators.`, drawChart: (container) => drawSimilarCasesTable(container, similarCasesData.filter(d => d.Current_Case_ID === primaryCaseId)) },
+            { id: "case-timeline", title: "Case Timeline & Milestones", text: `Visual tracking of key dates and procedural milestones for Case ${primaryCaseId}.`, drawChart: (container) => drawCaseTimelineChart(container, primaryCase) },
+            { id: "expert-perf", title: "Expert Witness Performance", text: "Categorizing potential expert witnesses based on their historical case impact and experience. Use this to find proven stars or promising rising talent.", drawChart: (container) => drawExpertPerformanceGraph(container, expertsData) },
+        ];
+
+        let currentStepIndex = 0;
+        let slideshowInterval;
+        let inactivityTimer;
+        const tooltip = d3.select("#tooltip");
+        const storyScroller = d3.select("#story-scroller");
+        const navDotsContainer = d3.select("#nav-dots");
+        
+        function updateSlideContent(index) {
+            const step = storySteps[index];
+            const slide = d3.select(`#slide-${step.id}`);
+            
+            slide.select(".story-title").text(step.title);
+            slide.select(".story-text").text(step.text);
+
+            const chartContainer = slide.select(".chart-container");
+            if (!chartContainer.classed('chart-drawn')) {
+                step.drawChart(chartContainer);
+                chartContainer.classed('chart-drawn', true);
+            }
+        }
+        
+        function scrollToSlide(index, behavior = 'smooth') {
+            const scrollerNode = storyScroller.node();
+            const slideWidth = scrollerNode.getBoundingClientRect().width;
+            scrollerNode.scrollTo({
+                left: index * slideWidth,
+                behavior: behavior
+            });
+        }
+        
+        function updateActiveState(index) {
+            if (index !== currentStepIndex) {
+                 currentStepIndex = index;
+                 navDotsContainer.selectAll('.nav-dot')
+                    .classed('active', (d, i) => i === index);
+                 updateSlideContent(index);
+            }
+        }
+
+        function startSlideshow() {
+            stopSlideshow();
+            slideshowInterval = setInterval(() => {
+                let nextIndex = (currentStepIndex + 1) % storySteps.length;
+                scrollToSlide(nextIndex);
+            }, 7000); // 7-second interval
+        }
+
+        function stopSlideshow() {
+            clearInterval(slideshowInterval);
+        }
+
+        function resetSlideshowTimer() {
+            stopSlideshow();
+            clearTimeout(inactivityTimer);
+            inactivityTimer = setTimeout(startSlideshow, 15000); // Restart after 15s of inactivity
+        }
+
+        function initializeDashboard() {
+            // Create slide structures
+            storyScroller.selectAll('.story-slide')
+                .data(storySteps)
+                .join('div')
+                .attr('class', 'story-slide')
+                .attr('id', d => `slide-${d.id}`)
+                .html(d => `
+                    <div class="explanation-panel">
+                        <h2 class="story-title"></h2>
+                        <p class="story-text"></p>
+                    </div>
+                    <div class="chart-container" id="chart-${d.id}"></div>
+                `);
+
+            navDotsContainer.selectAll('.nav-dot')
+                .data(storySteps)
+                .join('div')
+                .attr('class', 'nav-dot')
+                .on('click', (event, d) => {
+                    const index = storySteps.findIndex(step => step.id === d.id);
+                    scrollToSlide(index);
+                    resetSlideshowTimer();
+                });
+            
+            let scrollTimeout;
+            storyScroller.on('scroll', () => {
+                resetSlideshowTimer();
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => {
+                    const scrollerNode = storyScroller.node();
+                    const slideWidth = scrollerNode.getBoundingClientRect().width;
+                    const newIndex = Math.round(scrollerNode.scrollLeft / slideWidth);
+                    updateActiveState(newIndex);
+                }, 150); // Debounce scroll event
+            });
+            
+            // Initial setup
+            updateActiveState(0);
+            navDotsContainer.selectAll('.nav-dot').classed('active', (d,i) => i === 0);
+            updateSlideContent(0);
+            
+            startSlideshow();
+        }
+
+        const onMouseOver = (event) => tooltip.transition().duration(200).style("opacity", 1);
+        const onMouseMove = (event, content) => tooltip.html(content).style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 10) + "px");
+        const onMouseOut = () => tooltip.transition().duration(500).style("opacity", 0);
+
+        // --- CHART FUNCTIONS ---
+
+        function drawDashboardSummary(container) {
+            const grid = container.append('div').attr('class', 'dashboard-grid');
+            const kpiData = [
+                { title: 'Total Cases', value: 3250, trend: 10, trendDir: 'positive' },
+                { title: 'Ongoing Cases', value: 1120, trend: -5, trendDir: 'negative' },
+                { title: 'Yet to Address', value: 230, trend: 8, trendDir: 'positive' },
+                { title: 'Closed Cases', value: 1500, trend: 12, trendDir: 'positive' },
+            ];
+            grid.selectAll('.kpi-tile').data(kpiData).join('div').attr('class', 'kpi-tile')
+                .html(d => `
+                    <div><h3 class="kpi-title">${d.title}</h3></div>
+                    <div><p class="kpi-value">${d3.format(",")(d.value)}</p></div>
+                    <div>
+                        <div class="kpi-separator"></div>
+                        <p class="kpi-trend ${d.trendDir}">${d.trend > 0 ? '↑' : '↓'} ${Math.abs(d.trend)}% vs LY</p>
+                    </div>
+                `);
+            const trendTile = grid.append('div').attr('class', 'chart-tile');
+            trendTile.append('h3').attr('class', 'kpi-title').text('Total Cases Trend');
+            const trendSvg = trendTile.append('svg').attr('width', '100%').attr('height', '85%');
+            const trendData = d3.range(12).map(i => ({ month: i, value: 3000 + i * 25 + random(-40, 40) }));
+            const trendMargin = {top: 10, right: 15, bottom: 25, left: 45};
+            const trendWidth = trendTile.node().getBoundingClientRect().width - trendMargin.left - trendMargin.right;
+            const trendHeight = trendTile.node().getBoundingClientRect().height * 0.85 - trendMargin.top - trendMargin.bottom;
+            const trendX = d3.scaleLinear().domain([0, 11]).range([0, trendWidth]);
+            const trendY = d3.scaleLinear().domain(d3.extent(trendData, d => d.value)).nice().range([trendHeight, 0]);
+            const trendLine = d3.line().x(d => trendX(d.month)).y(d => trendY(d.value)).curve(d3.curveBasis);
+            const trendArea = d3.area().x(d => trendX(d.month)).y0(trendHeight).y1(d => trendY(d.value)).curve(d3.curveBasis);
+            const g = trendSvg.append("g").attr("transform", `translate(${trendMargin.left},${trendMargin.top})`);
+            g.append("defs").append("linearGradient").attr("id", "trend-gradient").attr("x1", "0%").attr("y1", "0%").attr("x2", "0%").attr("y2", "100%")
+                .selectAll("stop").data([ {offset: "0%", color: "var(--firm-color)", opacity: 0.5}, {offset: "100%", color: "var(--firm-color)", opacity: 0} ])
+                .join("stop").attr("offset", d => d.offset).attr("stop-color", d => d.color).attr("stop-opacity", d => d.opacity);
+            g.append("g").attr("class", "mini-chart-axis").attr("transform", `translate(0,${trendHeight})`).call(d3.axisBottom(trendX).ticks(4).tickFormat(d => `M${d+1}`));
+            g.append("g").attr("class", "mini-chart-axis").call(d3.axisLeft(trendY).ticks(3).tickFormat(d3.format("~s")));
+            g.append("path").datum(trendData).attr("fill", "url(#trend-gradient)").attr("d", trendArea);
+            g.append("path").datum(trendData).attr("fill", "none").attr("stroke", "var(--firm-color)").attr("stroke-width", 2.5).attr("d", trendLine);
+            const lineTile = grid.append('div').attr('class', 'chart-tile');
+            lineTile.append('h3').attr('class', 'kpi-title').text('Win vs. Loss Trend');
+            const lineSvg = lineTile.append('svg').attr('width', '100%').attr('height', '85%');
+            const lineData = d3.range(12).map(i => ({ month: i, wins: 40 + i * 5 + random(-10, 10), losses: 20 + i * 1 + random(-5, 5) }));
+            const lineMargin = {top: 10, right: 15, bottom: 25, left: 45};
+            const lineWidth = lineTile.node().getBoundingClientRect().width - lineMargin.left - lineMargin.right;
+            const lineHeight = lineTile.node().getBoundingClientRect().height * 0.85 - lineMargin.top - lineMargin.bottom;
+            const lineX = d3.scaleLinear().domain([0, 11]).range([0, lineWidth]);
+            const lineY = d3.scaleLinear().domain([0, d3.max(lineData, d=> d.wins)]).nice().range([lineHeight, 0]);
+            const winLine = d3.line().x(d => lineX(d.month)).y(d => lineY(d.wins)).curve(d3.curveCatmullRom);
+            const lossLine = d3.line().x(d => lineX(d.month)).y(d => lineY(d.losses)).curve(d3.curveCatmullRom);
+            const winArea = d3.area().x(d => lineX(d.month)).y0(lineHeight).y1(d => lineY(d.wins)).curve(d3.curveCatmullRom);
+            const lossArea = d3.area().x(d => lineX(d.month)).y0(lineHeight).y1(d => lineY(d.losses)).curve(d3.curveCatmullRom);
+            const lineG = lineSvg.append("g").attr("transform", `translate(${lineMargin.left},${lineMargin.top})`);
+            lineG.append("g").attr("class", "mini-chart-axis").attr("transform", `translate(0,${lineHeight})`).call(d3.axisBottom(lineX).ticks(4).tickFormat(d => `M${d+1}`));
+            lineG.append("g").attr("class", "mini-chart-axis").call(d3.axisLeft(lineY).ticks(3));
+            lineG.append("path").datum(lineData).attr("fill", "var(--positive-trend-color)").attr("d", winArea).style("opacity", 0.15);
+            lineG.append("path").datum(lineData).attr("fill", "var(--lose-color)").attr("d", lossArea).style("opacity", 0.15);
+            lineG.append("path").datum(lineData).attr("fill", "none").attr("stroke", "var(--positive-trend-color)").attr("stroke-width", 2.5).attr("d", winLine);
+            lineG.append("path").datum(lineData).attr("fill", "none").attr("stroke", "var(--negative-trend-color)").attr("stroke-width", 2.5).attr("d", lossLine);
+            lineG.append("circle").attr("cx",lineWidth-40).attr("cy",5).attr("r",4).style("fill", "var(--positive-trend-color)");
+            lineG.append("text").attr("x", lineWidth-30).attr("y", 5).text("Wins").style("alignment-baseline","middle").attr("class","mini-chart-legend");
+            lineG.append("circle").attr("cx",lineWidth-40).attr("cy",20).attr("r",4).style("fill", "var(--negative-trend-color)");
+            lineG.append("text").attr("x", lineWidth-30).attr("y", 20).text("Losses").style("alignment-baseline","middle").attr("class","mini-chart-legend");
+        }
+
+        function drawRiskMap(container, caseData) {
+            const width = container.node().getBoundingClientRect().width, height = container.node().getBoundingClientRect().height;
+            const margin = {top: 50, right: 30, bottom: 50, left: 60}; // Increased top margin for legend
+            const svg = container.append("svg").attr("width", width).attr("height", height);
+
+            const medianWinProb = d3.median(caseData, d => +d.Win_Probability);
+            const medianLoseProb = d3.median(caseData, d => +d.Lose_Probability);
+
+            const getCaseColor = (d) => {
+                const isHighWin = +d.Win_Probability > medianWinProb;
+                const isHighLoss = +d.Lose_Probability > medianLoseProb;
+                if (isHighWin && !isHighLoss) return 'var(--case-green)';
+                if (isHighWin && isHighLoss) return 'var(--case-yellow)';
+                if (!isHighWin && !isHighLoss) return 'var(--case-orange)';
+                if (!isHighWin && isHighLoss) return 'var(--case-red)';
+                return 'var(--neutral-gray)';
+            };
+
+            const x = d3.scaleLinear().domain([0, d3.max(caseData, d=>+d.Lose_Probability)]).nice().range([margin.left, width - margin.right]);
+            const y = d3.scaleLinear().domain([0, 1]).nice().range([height - margin.bottom, margin.top]);
+            const z = d3.scaleSqrt().domain([0, d3.max(caseData, d=>+d.Potential_Award)]).range([3, 20]);
+
+            svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(x).tickFormat(d3.format(".0%")))
+                .attr("class", "d3-axis")
+              .append("text").attr("class", "axis-label").attr("x", width/2).attr("y", 40).text("Case Risk (Probability of Loss) →");
+            
+            svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(y).tickFormat(d3.format(".0%")))
+                .attr("class", "d3-axis")
+              .append("text").attr("class", "axis-label").attr("transform", "rotate(-90)").attr("y", -45).attr("x", -(height / 2) + margin.top).text("↑ Case Reward (Probability of Win)");
+
+            const circles = svg.selectAll("circle").data(caseData).join("circle")
+                .attr("cx", d => x(+d.Lose_Probability)).attr("cy", d => y(+d.Win_Probability))
+                .attr("r", 0).attr("fill", d => getCaseColor(d)).attr("opacity", 0.7)
+                .attr("stroke", "var(--border-color)").attr("stroke-width", 1)
+                .on("mouseover", function(event, d) {
+                    d3.select(this).transition().duration(150).attr("opacity", 1).attr("r", z(+d.Potential_Award) + 5).attr("stroke", "white");
+                    d3.select(this).raise(); onMouseOver(event);
+                    onMouseMove(event, `<strong>${d.CaseID}</strong> (${d.Case_Type})<br>Win Prob: ${(d.Win_Probability*100).toFixed(1)}%<br>Lose Prob: ${(d.Lose_Probability*100).toFixed(1)}%<br>Award: ${d3.format("$,.2s")(d.Potential_Award)}`);
+                })
+                .on("mousemove", (event, d) => onMouseMove(event, `<strong>${d.CaseID}</strong> (${d.Case_Type})<br>Win Prob: ${(d.Win_Probability*100).toFixed(1)}%<br>Lose Prob: ${(d.Lose_Probability*100).toFixed(1)}%<br>Award: ${d3.format("$,.2s")(d.Potential_Award)}`))
+                .on("mouseout", function(event, d) {
+                    d3.select(this).transition().duration(150).attr("opacity", 0.7).attr("r", z(+d.Potential_Award)).attr("stroke", "var(--border-color)");
+                    onMouseOut();
+                });
+
+            circles.transition().duration(1000).ease(d3.easeElastic.period(0.6)).delay((d,i) => i * 3).attr("r", d => z(+d.Potential_Award));
+
+            // FIX: Re-formatted legend into a single vertical list to prevent overlapping
+            const legendData = [
+                { color: 'var(--case-green)', text: 'Most Suggested (High Reward, Low Risk)' },
+                { color: 'var(--case-yellow)', text: 'High Stakes (High Reward, High Risk)' },
+                { color: 'var(--case-orange)', text: 'Low Priority (Low Reward, Low Risk)' },
+                { color: 'var(--case-red)', text: 'Avoid (Low Reward, High Risk)' }
+            ];
+
+            const legend = svg.append('g').attr('class', 'chart-legend-group')
+                .attr('transform', `translate(${margin.left}, ${margin.top - 40})`);
+            
+            const legendItems = legend.selectAll('.legend-item').data(legendData).join('g')
+                .attr('class', 'legend-item')
+                .attr('transform', (d, i) => `translate(0, ${i * 18})`);
+            
+            legendItems.append('rect')
+                .attr('width', 12).attr('height', 12).attr('fill', d => d.color);
+
+            legendItems.append('text')
+                .attr('x', 18).attr('y', 10).text(d => d.text).attr('class', 'mini-chart-legend');
+        }
+
+        function drawCaseStatusTable(container, data) {
+            let currentSort = { key: 'CaseID', ascending: true };
+            const tableContainer = container.append('div').attr('class', 'table-container');
+            const table = tableContainer.append('table');
+            const headers = ['CaseID', 'Case_Type', 'Jurisdiction', 'Potential_Award', 'Status'];
+            const headerLabels = {CaseID: "Case ID", Case_Type: "Case Type", Jurisdiction: "Jurisdiction", Potential_Award: "Potential Award", Status: "Status" };
+            const thead = table.append('thead');
+            const tbody = table.append('tbody');
+            function renderTable() {
+                data.sort((a, b) => {
+                    let valA = a[currentSort.key]; let valB = b[currentSort.key];
+                    if (currentSort.key === 'Potential_Award') { valA = +valA; valB = +valB; }
+                    if (valA < valB) return currentSort.ascending ? -1 : 1;
+                    if (valA > valB) return currentSort.ascending ? 1 : -1;
+                    return 0;
+                });
+                thead.html('').append('tr').selectAll('th').data(headers).join('th').text(d => headerLabels[d])
+                    .on('click', (event, d) => {
+                        if (currentSort.key === d) { currentSort.ascending = !currentSort.ascending; }
+                        else { currentSort.key = d; currentSort.ascending = true; }
+                        renderTable();
+                    })
+                    .append('span').html(d => d === currentSort.key ? (currentSort.ascending ? ' &uarr;' : ' &darr;') : '');
+                tbody.selectAll('tr').data([]).join('tr');
+                const rows = tbody.selectAll('tr').data(data, d => d.CaseID).join('tr')
+                    .attr('class', d => {
+                        if (d.Status === 'Not Started') return 'status-not-started';
+                        if (d.Status === 'Closed') return 'status-closed';
+                        return null;
+                    });
+                rows.append('td').text(d => d.CaseID);
+                rows.append('td').text(d => d.Case_Type);
+                rows.append('td').text(d => d.Jurisdiction);
+                rows.append('td').text(d => d3.format("$,.0f")(d.Potential_Award));
+                rows.append('td').text(d => d.Status);
+                rows.style("opacity", 0).style("transform", "translateY(20px)");
+                rows.transition().duration(500).delay((d, i) => i * 15).style("opacity", 1).style("transform", "translateY(0)");
+            }
+            renderTable();
+        }
+
+        function drawCaseTimelineChart(container, caseData) {
+            const width = container.node().getBoundingClientRect().width, height = container.node().getBoundingClientRect().height;
+            const margin = {top: 20, right: 30, bottom: 40, left: 120};
+            const baseDate = new Date(caseData.Filing_Date);
+            const data = [
+                { milestone: 'Pleadings Filed', start: new Date(baseDate.getTime() + 10 * 86400000), end: new Date(baseDate.getTime() + 25 * 86400000) },
+                { milestone: 'Motion to Dismiss', start: new Date(baseDate.getTime() + 40 * 86400000), end: new Date(baseDate.getTime() + 55 * 86400000) },
+                { milestone: 'Discovery', start: new Date(baseDate.getTime() + 60 * 86400000), end: new Date(baseDate.getTime() + 200 * 86400000) },
+                { milestone: 'Depositions', start: new Date(baseDate.getTime() + 120 * 86400000), end: new Date(baseDate.getTime() + 180 * 86400000) },
+                { milestone: 'Expert Disclosure', start: new Date(baseDate.getTime() + 210 * 86400000), end: new Date(baseDate.getTime() + 240 * 86400000) },
+                { milestone: 'Pre-Trial Conference', start: new Date(baseDate.getTime() + 280 * 86400000), end: new Date(baseDate.getTime() + 282 * 86400000) },
+                { milestone: 'Trial', start: new Date(baseDate.getTime() + 300 * 86400000), end: new Date(baseDate.getTime() + 315 * 86400000) },
+            ];
+            const svg = container.append("svg").attr("width", width).attr("height", height);
+            const x = d3.scaleTime().domain([d3.min(data, d => d.start), d3.max(data, d => d.end)]).range([margin.left, width - margin.right]);
+            const y = d3.scaleBand().domain(data.map(d => d.milestone)).range([margin.top, height - margin.bottom]).padding(0.4);
+            svg.append("g").attr("transform", `translate(0, ${height - margin.bottom})`).call(d3.axisBottom(x).ticks(d3.timeMonth.every(1)).tickFormat(d3.timeFormat("%b %Y"))).attr('class', 'd3-axis');
+            svg.append("g").attr("transform", `translate(${margin.left}, 0)`).call(d3.axisLeft(y)).attr('class', 'd3-axis').select(".domain").remove();
+            svg.selectAll(".timeline-bar").data(data).join("rect")
+                .attr("class", "timeline-bar").attr("x", d => x(d.start)).attr("y", d => y(d.milestone))
+                .attr("height", y.bandwidth()).attr("fill", "var(--firm-color)").attr("rx", 3).attr("width", 0)
+                .on("mouseover", onMouseOver)
+                .on("mousemove", (event, d) => onMouseMove(event, `<strong>${d.milestone}</strong><br>Start: ${d3.timeFormat("%b %d, %Y")(d.start)}<br>End: ${d3.timeFormat("%b %d, %Y")(d.end)}`))
+                .on("mouseout", onMouseOut)
+                .transition().duration(800).ease(d3.easeCubicOut).delay((d,i)=>i*100)
+                .attr("width", d => Math.max(2, x(d.end) - x(d.start)));
+        }
+
+        function drawOutcomeProbabilityChart(container, data) {
+            const width = container.node().getBoundingClientRect().width, height = container.node().getBoundingClientRect().height;
+            const margin = {top: 20, right: 20, bottom: 80, left: 50};
+            const svg = container.append("svg").attr("width", width).attr("height", height);
+            const outcomes = ["win", "settle", "lose"];
+            const scenarios = data.map(d => d.scenario);
+            const x0 = d3.scaleBand().domain(scenarios).rangeRound([margin.left, width - margin.right]).paddingInner(0.2);
+            const x1 = d3.scaleBand().domain(outcomes).rangeRound([0, x0.bandwidth()]).padding(0.05);
+            const y = d3.scaleLinear().domain([0, 1]).rangeRound([height - margin.bottom, margin.top]);
+            const color = d3.scaleOrdinal().domain(outcomes).range(['var(--win-color)', 'var(--settle-color)', 'var(--lose-color)']);
+
+            svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(x0)).attr("class", "d3-axis").selectAll("text").attr("transform", "translate(-10,0)rotate(-45)").style("text-anchor", "end");
+            svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(y).ticks(null, "%")).attr("class", "d3-axis");
+
+            svg.append("g").selectAll("g").data(data).join("g").attr("transform", d => `translate(${x0(d.scenario)},0)`).selectAll("rect")
+              .data(d => outcomes.map(key => ({scenario: d.scenario, key, value: d[key]}))).join("rect")
+                .attr("x", d => x1(d.key)).attr("y", y(0)).attr("width", x1.bandwidth()).attr("height", 0)
+                .attr("fill", d => color(d.key)).attr("rx", 3)
+                .on("mouseover", function(event, d) { d3.select(this).transition().duration(200).style('filter', 'brightness(1.5)'); onMouseOver(event); onMouseMove(event, `<strong>${d.key.charAt(0).toUpperCase() + d.key.slice(1)}</strong>: ${(d.value * 100).toFixed(0)}%`); })
+                .on("mousemove", (event, d) => onMouseMove(event, `<strong>${d.key.charAt(0).toUpperCase() + d.key.slice(1)}</strong>: ${(d.value * 100).toFixed(0)}%`))
+                .on("mouseout", function(event, d) { d3.select(this).transition().duration(200).style('filter', 'brightness(1)'); onMouseOut(); })
+                .transition().duration(1000).ease(d3.easeCubicOut).delay((d,i) => i * 100 + scenarios.indexOf(d.scenario) * 200)
+                .attr("y", d => y(d.value)).attr("height", d => y(0) - y(d.value));
+        }
+
+        function drawSimilarCasesTable(container, data) {
+            const tableContainer = container.append('div').attr('class', 'table-container');
+            const table = tableContainer.append('table');
+            table.append('thead').append('tr').selectAll('th').data(['Case ID', 'Similarity', 'Outcome', 'Award Amount', 'Key Differentiator']).join('th').text(d => d);
+            const rows = table.append('tbody').selectAll('tr').data(data).join('tr').style("transform", "translateX(-30px)").style("opacity", 0);
+            rows.append('td').text(d => d.Similar_Case_ID);
+            const similarityTd = rows.append('td');
+            const sparklineSvg = similarityTd.append('svg').attr('width', '100%').attr('height', 20);
+            sparklineSvg.append('rect').attr('width', '100%').attr('height', 20).attr('fill', '#21262d').attr('rx', 2);
+            sparklineSvg.append('rect').attr('class', 'sparkline-bar').attr('height', 20).attr('rx', 2).attr('width', 0).transition().duration(800).delay((d, i) => i * 80).attr('width', d => `${d.Similarity_Score * 100}%`);
+            sparklineSvg.append('text').text(d => `${(d.Similarity_Score*100).toFixed(0)}%`).attr('x', 5).attr('y', 14).attr('fill', 'white').style('font-size', '12px');
+            rows.append('td').text(d => d.Outcome);
+            rows.append('td').text(d => d3.format("$,.2s")(d.Award_Amount));
+            rows.append('td').text(d => d.Key_Differences);
+            rows.on("mouseover", onMouseOver).on("mousemove", (event, d) => onMouseMove(event, `<strong>${d.Similar_Case_ID}</strong>: An outcome of '${d.Outcome}' with an award of ${d3.format("$,.0f")(d.Award_Amount)}.`)).on("mouseout", onMouseOut);
+            rows.transition().duration(500).delay((d,i) => i * 50).style("transform", "translateX(0)").style("opacity", 1);
+        }
+
+        function drawExpertPerformanceGraph(container, expertData) {
+            const width = container.node().getBoundingClientRect().width, height = container.node().getBoundingClientRect().height;
+            const margin = {top: 20, right: 20, bottom: 50, left: 60};
+            const svg = container.append("svg").attr("width", width).attr("height", height);
+            const x = d3.scaleLinear().domain([0, d3.max(expertData, d => +d.Cases_Involved)]).nice().range([margin.left, width - margin.right]);
+            const y = d3.scaleLinear().domain([d3.min(expertData, d => +d.Success_Impact_Score) - 0.05, 1]).nice().range([height - margin.bottom, margin.top]);
+            const medianCases = d3.median(expertData, d => +d.Cases_Involved);
+            const medianImpact = d3.median(expertData, d => +d.Success_Impact_Score);
+            const quadrants = [
+                { label: "Rising Stars", x: margin.left, y: margin.top, width: x(medianCases) - margin.left, height: y(medianImpact) - margin.top, color: "var(--firm-color)" },
+                { label: "Top Tier Experts", x: x(medianCases), y: margin.top, width: width - margin.right - x(medianCases), height: y(medianImpact) - margin.top, color: "var(--positive-trend-color)" },
+                { label: "High Risk", x: margin.left, y: y(medianImpact), width: x(medianCases) - margin.left, height: height - margin.bottom - y(medianImpact), color: "var(--negative-trend-color)" },
+                { label: "Volume Experts", x: x(medianCases), y: y(medianImpact), width: width - margin.right - x(medianCases), height: height - margin.bottom - y(medianImpact), color: "var(--industry-color)" },
+            ];
+            svg.selectAll(".quadrant-bg").data(quadrants).join("rect").attr("class", "quadrant-bg").attr("x", d => d.x).attr("y", d => d.y).attr("width", d => d.width).attr("height", d => d.height).attr("fill", d => d.color).style("opacity", 0.08);
+            svg.selectAll(".quadrant-label").data(quadrants).join("text").attr("class", "quadrant-label").attr("x", d => d.label.includes('Top') || d.label.includes('Volume') ? d.x + d.width - 10 : d.x + 10).attr("y", d => d.label.includes('Rising') || d.label.includes('Top') ? d.y + 20 : d.y + d.height - 20).attr("text-anchor", d => d.label.includes('Top') || d.label.includes('Volume') ? 'end' : 'start').style("fill", d => d.color).text(d => d.label);
+            svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(x)).attr("class", "d3-axis").append("text").attr("class", "axis-label").attr("x", width/2).attr("y", 35).text("Experience (Cases Involved) →");
+            svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(y)).attr("class", "d3-axis").append("text").attr("class", "axis-label").attr("transform", "rotate(-90)").attr("y", -45).attr("x", -height/2 + margin.top).text("↑ Success / Impact Score");
+            const isTopExpert = d => +d.Success_Impact_Score > medianImpact && +d.Cases_Involved > medianCases;
+            svg.selectAll("circle").data(expertData).join("circle")
+                .attr("cx", d => x(+d.Cases_Involved)).attr("cy", d => y(+d.Success_Impact_Score))
+                .attr("r", 0).attr("fill", d => isTopExpert(d) ? "var(--positive-trend-color)" : "var(--settle-color)")
+                .attr("stroke", d => isTopExpert(d) ? "#fff" : "none").attr("stroke-width", 1.5).style("opacity", 0.6)
+                .on("mouseover", function(event, d) {
+                    d3.select(this).transition().duration(150).attr("r", isTopExpert(d) ? 12 : 8).style("opacity", 1).raise();
+                    onMouseOver(event);
+                    onMouseMove(event, `<strong>${d.Expert_Name}</strong> (${d.Specialty})<br>Impact: ${d.Success_Impact_Score}, Cases: ${d.Cases_Involved}`);
+                })
+                .on("mousemove", (event, d) => onMouseMove(event, `<strong>${d.Expert_Name}</strong> (${d.Specialty})<br>Impact: ${d.Success_Impact_Score}, Cases: ${d.Cases_Involved}`))
+                .on("mouseout", function(event, d) {
+                    d3.select(this).transition().duration(150).attr("r", isTopExpert(d) ? 8 : 4).style("opacity", 0.6);
+                    onMouseOut();
+                })
+                .transition().duration(1200).ease(d3.easeElastic.period(0.8)).delay((d,i) => i * 5)
+                .attr("r", d => isTopExpert(d) ? 8 : 4);
+        }
+
+        initializeDashboard();
+    });
+    </script>
+</body>
+</html>
